@@ -65,7 +65,8 @@ public class Ngram {
    public static class NgramMapper extends
          Mapper<LongWritable, Text, Text, IntWritable> {
 
-      private final Hashset queryNgramSet = new HashSet();
+      private final HashSet queryNgramSet = new HashSet();
+      private int N;
 
       @Override
       protected void setup(Context context) 
@@ -74,15 +75,16 @@ public class Ngram {
          Configuration conf = context.getConfiguration();
          try {
             Path queryPath = new Path(conf.get("query.pathname"));
-            final int N = conf.getInt("param.n",0);
+            N = conf.getInt("param.n",0);
             assert N > 0;
             FileSystem fs = FileSystem.get(conf);
             BufferedReader br = new BufferedReader(new InputStreamReader(fs.open(queryPath)));
             String line;
             int cnt = 0;
+            String ngram[] = new String[N];
             boolean ngramReady = false;
             while ((line = br.readLine()) != null) {
-               Tokenizer parser = new Tokenizer(sCurrentLine);
+               Tokenizer parser = new Tokenizer(line);
                while (parser.hasNext()) {
                   ngram[cnt++] = new String(parser.next());
                   if (cnt==N) {
@@ -115,6 +117,7 @@ public class Ngram {
          // Evaluate score
          int cnt = 0;
          int score = 0;
+         String ngram[] = new String[N];
          boolean ngramReady = false;
          //Hashset docNgramSet = new HashSet();
          Tokenizer parser = new Tokenizer(page);
@@ -133,7 +136,7 @@ public class Ngram {
             }
          }
          // Write output
-         context.write(new Text(titleString), new IntWritable(score);
+         context.write(new Text(titleString), new IntWritable(score));
       }
    }
 
@@ -143,9 +146,10 @@ public class Ngram {
       @Override
       public void reduce(Text key, Iterable<IntWritable> values, Context context)
                throws IOException, InterruptedException {
-         IntWritable score;
+         IntWritable score = new IntWritable(0);
          for (IntWritable val : values) {
             score = val;
+            if (score.get()==0) return;
             break;
          }
          //IntWritable ONE = new IntWritable(1);
