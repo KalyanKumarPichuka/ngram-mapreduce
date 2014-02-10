@@ -1,2 +1,2 @@
-hadoop
+ngram-mapreduce
 ======
