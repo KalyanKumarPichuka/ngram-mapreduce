@@ -1,15 +1,14 @@
-import java.io.BufferedReader;
+/*
+ * n-gram text search
+ * Hadoop 1.2.1 implementation
+ * Author: Ruizhongtai (Charles) Qi
+ *
+ */
+
 import java.io.IOException;
+import java.io.BufferedReader;
 import java.io.InputStreamReader;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Deque;
 import java.util.HashSet;
-import java.util.Iterator;
-import java.util.LinkedList;
-import java.util.Set;
-import java.util.LinkedHashSet;
-import java.util.TreeSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -30,11 +29,11 @@ import org.apache.hadoop.mapreduce.lib.output.TextOutputFormat;
 
 public class Ngram {
 
-   
    public static void main(String[] args) throws Exception {
       Configuration conf = new Configuration();
 
       conf.setInt("param.n", Integer.parseInt(args[0]));
+      conf.setInt("topk", 20);
       conf.set("query.pathname", args[1]);
       conf.set("xmlStart", "<page>");
       conf.set("xmlEnd", "</page>");
@@ -42,19 +41,21 @@ public class Ngram {
       job.setJarByClass(Ngram.class);
 
       // Map Input: <number> <page_content>
-      // Map Output: <?> <?>
-      // Reduce Input: ?
-      // Reduce Output: ?
-      job.setMapOutputKeyClass(Text.class);
-      job.setMapOutputValueClass(IntWritable.class);
-      job.setOutputKeyClass(IntWritable.class);//cnt
-      job.setOutputValueClass(Text.class);//title
+      // Map Output: <score> <title>
+      // Reduce Input: <score> Iterable<title>
+      // Reduce Output: <title> <score>
+      job.setMapOutputKeyClass(LongWritable.class);
+      job.setMapOutputValueClass(Text.class);
+      job.setOutputKeyClass(Text.class);
+      job.setOutputValueClass(LongWritable.class);
 
       job.setMapperClass(NgramMapper.class);
       job.setReducerClass(NgramReducer.class);
 
       job.setInputFormatClass(XmlInputFormat.class); // XML Input Format
       job.setOutputFormatClass(TextOutputFormat.class);
+
+      job.setSortComparatorClass(LongWritable.DecreasingComparator.class);
 
       FileInputFormat.addInputPath(job, new Path(args[2]));
       FileOutputFormat.setOutputPath(job, new Path(args[3]));
@@ -63,7 +64,7 @@ public class Ngram {
    }
    
    public static class NgramMapper extends
-         Mapper<LongWritable, Text, Text, IntWritable> {
+         Mapper<LongWritable, Text, LongWritable, Text> {
 
       private final HashSet queryNgramSet = new HashSet();
       private int N;
@@ -104,7 +105,6 @@ public class Ngram {
       @Override
       protected void map(LongWritable key, Text value, Context context)
                throws IOException, InterruptedException {
-         IntWritable ONE = new IntWritable(1);
          // Pre-processing
          String page = value.toString();
          String titleString=null;
@@ -136,24 +136,35 @@ public class Ngram {
             }
          }
          // Write output
-         context.write(new Text(titleString), new IntWritable(score));
+         if (score==0) return;
+         context.write(new LongWritable(score), new Text(titleString));
       }
    }
 
    public static class NgramReducer extends
-         Reducer<Text, IntWritable, IntWritable, Text> {
+         Reducer<LongWritable, Text, Text, LongWritable> {
+      private int topK;
+      private int topCnt = 0;
 
       @Override
-      public void reduce(Text key, Iterable<IntWritable> values, Context context)
+      protected void setup(Context context) 
+            throws IOException, InterruptedException {
+         super.setup(context);
+         Configuration conf = context.getConfiguration();
+         try {
+            topK = conf.getInt("topk",1);
+         } catch (Exception e) {}
+      }
+
+      @Override
+      public void reduce(LongWritable key, Iterable<Text> values, Context context)
                throws IOException, InterruptedException {
-         IntWritable score = new IntWritable(0);
-         for (IntWritable val : values) {
-            score = val;
-            if (score.get()==0) return;
-            break;
+         for (Text val : values) {
+             if (topCnt<topK) {
+                 context.write(val, key);
+             } else return;
+             topCnt++;
          }
-         //IntWritable ONE = new IntWritable(1);
-         context.write(score, key);
       }
    }
 }
